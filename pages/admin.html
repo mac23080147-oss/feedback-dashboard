@@ -12,6 +12,45 @@
   <main class="max-w-5xl mx-auto px-4 py-8">
     <h1 class="text-2xl font-semibold text-gray-800 mb-6">Admin View</h1>
 
+    <div class="mb-4 flex flex-wrap items-end gap-4">
+      <div>
+        <label for="filter-location" class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+        <select id="filter-location"
+          class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">All locations</option>
+          <option value="District 1">District 1</option>
+          <option value="District 3">District 3</option>
+          <option value="Thao Dien">Thao Dien</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="filter-min-rating" class="block text-sm font-medium text-gray-700 mb-1">Minimum rating</label>
+        <select id="filter-min-rating"
+          class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="filter-from" class="block text-sm font-medium text-gray-700 mb-1">From</label>
+        <input type="date" id="filter-from"
+          class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+
+      <div>
+        <label for="filter-to" class="block text-sm font-medium text-gray-700 mb-1">To</label>
+        <input type="date" id="filter-to"
+          class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+    </div>
+
+    <p id="feedback-count" class="text-sm text-gray-500 mb-2"></p>
+
     <div id="feedback-table-container"></div>
   </main>
 
@@ -25,28 +64,65 @@
       return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
+    function toLocalDateInputValue(isoString) {
+      const d = new Date(isoString);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
     function escapeHtml(value) {
       const div = document.createElement('div');
       div.textContent = value == null ? '' : String(value);
       return div.innerHTML;
     }
 
-    function renderFeedbackTable() {
-      const container = document.getElementById('feedback-table-container');
-
-      let entries = [];
+    function loadEntries() {
       try {
-        entries = JSON.parse(localStorage.getItem('feedbackEntries') || '[]');
+        const parsed = JSON.parse(localStorage.getItem('feedbackEntries') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
       } catch {
-        entries = [];
+        return [];
       }
+    }
 
-      if (!Array.isArray(entries) || entries.length === 0) {
+    function applyFilters(entries) {
+      const location = document.getElementById('filter-location').value;
+      const minRating = Number(document.getElementById('filter-min-rating').value);
+      const from = document.getElementById('filter-from').value;
+      const to = document.getElementById('filter-to').value;
+
+      return entries.filter((entry) => {
+        if (location && entry.location !== location) return false;
+        if (Number(entry.rating) < minRating) return false;
+
+        const entryDate = toLocalDateInputValue(entry.timestamp);
+        if (from && entryDate < from) return false;
+        if (to && entryDate > to) return false;
+
+        return true;
+      });
+    }
+
+    function renderFeedback() {
+      const countEl = document.getElementById('feedback-count');
+      const container = document.getElementById('feedback-table-container');
+      const entries = loadEntries();
+
+      if (entries.length === 0) {
+        countEl.textContent = '';
         container.innerHTML = '<p class="text-sm text-gray-500">No feedback yet</p>';
         return;
       }
 
-      const sorted = [...entries].sort(
+      const filtered = applyFilters(entries);
+      countEl.textContent = `Showing ${filtered.length} of ${entries.length} feedbacks`;
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<p class="text-sm text-gray-500">No feedback matches your filters</p>';
+        return;
+      }
+
+      const sorted = [...filtered].sort(
         (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
       );
 
@@ -84,7 +160,11 @@
       `;
     }
 
-    renderFeedbackTable();
+    ['filter-location', 'filter-min-rating', 'filter-from', 'filter-to'].forEach((id) => {
+      document.getElementById(id).addEventListener('change', renderFeedback);
+    });
+
+    renderFeedback();
   </script>
 </body>
 </html>
