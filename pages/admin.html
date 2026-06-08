@@ -70,6 +70,13 @@
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     }
 
+    function getSentimentClass(rating) {
+      const r = Number(rating);
+      if (r <= 2) return 'bg-red-100';
+      if (r === 3) return 'bg-yellow-100';
+      return 'bg-green-100';
+    }
+
     function escapeHtml(value) {
       const div = document.createElement('div');
       div.textContent = value == null ? '' : String(value);
@@ -129,7 +136,7 @@
       const rows = sorted
         .map(
           (entry) => `
-            <tr class="border-b border-gray-200">
+            <tr class="border-b border-gray-200 ${getSentimentClass(entry.rating)}">
               <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${formatDate(entry.timestamp)}</td>
               <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.location)}</td>
               <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.rating)}</td>
