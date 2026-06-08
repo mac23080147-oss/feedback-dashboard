@@ -75,6 +75,12 @@
         <input type="text" id="filter-search-comment" placeholder="Search comment"
           class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
+
+      <div class="flex items-center gap-2">
+        <input type="checkbox" id="filter-show-hidden"
+          class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <label for="filter-show-hidden" class="text-sm font-medium text-gray-700">Show hidden</label>
+      </div>
     </div>
 
     <div class="mb-2 flex items-center justify-between gap-4">
@@ -194,7 +200,7 @@
     let ratingChart = null;
 
     function renderSummary() {
-      const entries = loadEntries();
+      const entries = loadEntries().filter((entry) => !entry.hidden);
       const totalEl = document.getElementById('summary-total');
       const averageEl = document.getElementById('summary-average');
       const locationEl = document.getElementById('summary-location');
@@ -223,7 +229,7 @@
     }
 
     function renderChart() {
-      const entries = loadEntries();
+      const entries = loadEntries().filter((entry) => !entry.hidden);
       const canvas = document.getElementById('rating-chart');
       const emptyEl = document.getElementById('rating-chart-empty');
       const counts = [1, 2, 3, 4, 5].map(
@@ -281,8 +287,10 @@
         return;
       }
 
-      const filtered = applyFilters(entries);
-      countEl.textContent = `Showing ${filtered.length} of ${entries.length} feedbacks`;
+      const showHidden = document.getElementById('filter-show-hidden').checked;
+      const baseEntries = showHidden ? entries : entries.filter((entry) => !entry.hidden);
+      const filtered = applyFilters(baseEntries);
+      countEl.textContent = `Showing ${filtered.length} of ${baseEntries.length} feedbacks`;
 
       if (filtered.length === 0) {
         container.innerHTML = '<p class="text-sm text-gray-500">No feedback matches your filters</p>';
@@ -295,6 +303,22 @@
 
       const rows = sorted
         .map((entry) => {
+          if (entry.hidden) {
+            return `
+              <tr class="border-b border-gray-200 bg-gray-100 text-gray-400">
+                <td class="px-4 py-2 text-sm whitespace-nowrap">${formatDate(entry.timestamp)}</td>
+                <td class="px-4 py-2 text-sm whitespace-nowrap">${escapeHtml(entry.location)}</td>
+                <td class="px-4 py-2 text-sm">${escapeHtml(entry.rating)}</td>
+                <td class="px-4 py-2 text-sm whitespace-nowrap">${escapeHtml(entry.name)}</td>
+                <td class="px-4 py-2 text-sm">${escapeHtml(entry.comment)}</td>
+                <td class="px-4 py-2 text-sm whitespace-nowrap">
+                  <span class="inline-block rounded-full bg-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 mr-2">Hidden</span>
+                  <button data-action="restore" data-timestamp="${entry.timestamp}" class="text-blue-600 hover:text-blue-800 font-medium">Restore</button>
+                </td>
+              </tr>
+            `;
+          }
+
           if (entry.timestamp === editingTimestamp) {
             return `
               <tr class="border-b border-gray-200 ${getSentimentClass(entry.rating)}">
@@ -377,7 +401,15 @@
         renderFeedback();
       } else if (action === 'delete') {
         if (!confirm('Delete this feedback entry?')) return;
-        const entries = loadEntries().filter((entry) => entry.timestamp !== timestamp);
+        const entries = loadEntries().map((entry) =>
+          entry.timestamp === timestamp ? { ...entry, hidden: true } : entry
+        );
+        localStorage.setItem('feedbackEntries', JSON.stringify(entries));
+        renderFeedback();
+      } else if (action === 'restore') {
+        const entries = loadEntries().map((entry) =>
+          entry.timestamp === timestamp ? { ...entry, hidden: false } : entry
+        );
         localStorage.setItem('feedbackEntries', JSON.stringify(entries));
         renderFeedback();
       } else if (action === 'save') {
@@ -403,14 +435,14 @@
 
     document.getElementById('feedback-table-container').addEventListener('click', handleTableClick);
 
-    ['filter-location', 'filter-min-rating', 'filter-from', 'filter-to'].forEach((id) => {
+    ['filter-location', 'filter-min-rating', 'filter-from', 'filter-to', 'filter-show-hidden'].forEach((id) => {
       document.getElementById(id).addEventListener('change', renderFeedback);
     });
 
     document.getElementById('filter-search-comment').addEventListener('input', renderFeedback);
 
     document.getElementById('export-csv-btn').addEventListener('click', () => {
-      const filtered = applyFilters(loadEntries());
+      const filtered = applyFilters(loadEntries().filter((entry) => !entry.hidden));
 
       if (filtered.length === 0) {
         alert('Nothing to export');
