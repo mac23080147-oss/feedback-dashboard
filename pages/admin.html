@@ -9,13 +9,82 @@
 <body class="bg-gray-50 min-h-screen">
   <div id="nav-container"></div>
 
-  <main class="max-w-3xl mx-auto px-4 py-8">
-    <h1 class="text-2xl font-semibold text-gray-800">Admin View</h1>
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <h1 class="text-2xl font-semibold text-gray-800 mb-6">Admin View</h1>
+
+    <div id="feedback-table-container"></div>
   </main>
 
   <script src="../shared/nav.js"></script>
   <script>
     renderNav('admin');
+
+    function formatDate(isoString) {
+      const d = new Date(isoString);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function escapeHtml(value) {
+      const div = document.createElement('div');
+      div.textContent = value == null ? '' : String(value);
+      return div.innerHTML;
+    }
+
+    function renderFeedbackTable() {
+      const container = document.getElementById('feedback-table-container');
+
+      let entries = [];
+      try {
+        entries = JSON.parse(localStorage.getItem('feedbackEntries') || '[]');
+      } catch {
+        entries = [];
+      }
+
+      if (!Array.isArray(entries) || entries.length === 0) {
+        container.innerHTML = '<p class="text-sm text-gray-500">No feedback yet</p>';
+        return;
+      }
+
+      const sorted = [...entries].sort(
+        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+      );
+
+      const rows = sorted
+        .map(
+          (entry) => `
+            <tr class="border-b border-gray-200">
+              <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${formatDate(entry.timestamp)}</td>
+              <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.location)}</td>
+              <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.rating)}</td>
+              <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.name)}</td>
+              <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.comment)}</td>
+            </tr>
+          `
+        )
+        .join('');
+
+      container.innerHTML = `
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200 text-left">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
+                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Comment</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    renderFeedbackTable();
   </script>
 </body>
 </html>
