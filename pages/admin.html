@@ -96,367 +96,330 @@
 
   <script src="../shared/nav.js"></script>
   <script>
+  if (typeof renderNav === 'function') {
     renderNav('admin');
+  }
 
-    function formatDate(isoString) {
-      const d = new Date(isoString);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  let allEntries = [];
+  let ratingChart = null;
+
+  function normalizeDate(value) {
+    if (!value) return new Date();
+
+    // Firestore timestamp object from API
+    if (value._seconds) {
+      return new Date(value._seconds * 1000);
     }
 
-    function toLocalDateInputValue(isoString) {
-      const d = new Date(isoString);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    // normal ISO string fallback
+    return new Date(value);
+  }
+
+  function formatDate(value) {
+    const d = normalizeDate(value);
+    const pad = (n) => String(n).padStart(2, '0');
+
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function toLocalDateInputValue(value) {
+    const d = normalizeDate(value);
+    const pad = (n) => String(n).padStart(2, '0');
+
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function getSentimentClass(rating) {
+    const r = Number(rating);
+    if (r <= 2) return 'bg-red-100';
+    if (r === 3) return 'bg-yellow-100';
+    return 'bg-green-100';
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+  }
+
+  function tsvField(value) {
+    const str = value == null ? '' : String(value);
+    const escaped = str.replace(/"/g, '""');
+    return /[\t\r\n"]/.test(str) ? `"${escaped}"` : escaped;
+  }
+
+  function encodeUtf16Le(str) {
+    const bytes = new Uint8Array(str.length * 2);
+
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i);
+      bytes[i * 2] = code & 0xff;
+      bytes[i * 2 + 1] = code >> 8;
     }
 
-    function getSentimentClass(rating) {
-      const r = Number(rating);
-      if (r <= 2) return 'bg-red-100';
-      if (r === 3) return 'bg-yellow-100';
-      return 'bg-green-100';
-    }
+    return bytes;
+  }
 
-    function escapeHtml(value) {
-      const div = document.createElement('div');
-      div.textContent = value == null ? '' : String(value);
-      return div.innerHTML;
-    }
+  function downloadCsv(content, filename) {
+    const bytes = encodeUtf16Le('\uFEFF' + content);
+    const blob = new Blob([bytes], { type: 'text/csv;charset=utf-16le' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
 
-    function tsvField(value) {
-      const str = value == null ? '' : String(value);
-      const escaped = str.replace(/"/g, '""');
-      return /[\t\r\n"]/.test(str) ? `"${escaped}"` : escaped;
-    }
+    link.href = url;
+    link.download = filename;
 
-    function buildCsv(entries) {
-      const header = ['Date', 'Location', 'Rating', 'Name', 'Comment'].join('\t');
-      const rows = entries.map((entry) =>
-        [
-          formatDate(entry.timestamp),
-          entry.location,
-          entry.rating,
-          entry.name,
-          entry.comment,
-        ].map(tsvField).join('\t')
-      );
-      return [header, ...rows].join('\r\n');
-    }
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
-    function encodeUtf16Le(str) {
-      const bytes = new Uint8Array(str.length * 2);
-      for (let i = 0; i < str.length; i++) {
-        const code = str.charCodeAt(i);
-        bytes[i * 2] = code & 0xff;
-        bytes[i * 2 + 1] = code >> 8;
-      }
-      return bytes;
-    }
+    URL.revokeObjectURL(url);
+  }
 
-    function downloadCsv(content, filename) {
-      const bytes = encodeUtf16Le('\uFEFF' + content);
-      const blob = new Blob([bytes], { type: 'text/csv;charset=utf-16le' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }
+  function buildCsv(entries) {
+    const header = ['Date', 'Location', 'Rating', 'Name', 'Comment'].join('\t');
 
-    function loadEntries() {
-      try {
-        const parsed = JSON.parse(localStorage.getItem('feedbackEntries') || '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
+    const rows = entries.map((entry) =>
+      [
+        formatDate(entry.createdAt),
+        entry.location,
+        entry.rating,
+        entry.name,
+        entry.comment,
+      ].map(tsvField).join('\t')
+    );
+
+    return [header, ...rows].join('\r\n');
+  }
+
+  async function loadEntries() {
+    try {
+      const response = await fetch('/api/feedback');
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error(data.error);
         return [];
       }
+
+      return data.feedbacks || [];
+    } catch (error) {
+      console.error(error);
+      return [];
     }
+  }
 
-    function applyFilters(entries) {
-      const location = document.getElementById('filter-location').value;
-      const minRating = Number(document.getElementById('filter-min-rating').value);
-      const from = document.getElementById('filter-from').value;
-      const to = document.getElementById('filter-to').value;
-      const searchComment = document.getElementById('filter-search-comment').value.trim().toLowerCase();
+  function applyFilters(entries) {
+    const location = document.getElementById('filter-location').value;
+    const minRating = Number(document.getElementById('filter-min-rating').value);
+    const from = document.getElementById('filter-from').value;
+    const to = document.getElementById('filter-to').value;
+    const searchComment = document.getElementById('filter-search-comment').value.trim().toLowerCase();
 
-      return entries.filter((entry) => {
-        if (location && entry.location !== location) return false;
-        if (Number(entry.rating) < minRating) return false;
+    return entries.filter((entry) => {
+      if (location && entry.location !== location) return false;
+      if (Number(entry.rating) < minRating) return false;
 
-        const entryDate = toLocalDateInputValue(entry.timestamp);
-        if (from && entryDate < from) return false;
-        if (to && entryDate > to) return false;
+      const entryDate = toLocalDateInputValue(entry.createdAt);
 
-        if (searchComment && !String(entry.comment ?? '').toLowerCase().includes(searchComment)) return false;
+      if (from && entryDate < from) return false;
+      if (to && entryDate > to) return false;
 
-        return true;
-      });
-    }
-
-    let editingTimestamp = null;
-    let ratingChart = null;
-
-    function renderSummary() {
-      const entries = loadEntries().filter((entry) => !entry.hidden);
-      const totalEl = document.getElementById('summary-total');
-      const averageEl = document.getElementById('summary-average');
-      const locationEl = document.getElementById('summary-location');
-
-      totalEl.textContent = String(entries.length);
-
-      if (entries.length === 0) {
-        averageEl.textContent = 'N/A';
-        locationEl.textContent = 'N/A';
-        return;
+      if (searchComment && !String(entry.comment ?? '').toLowerCase().includes(searchComment)) {
+        return false;
       }
 
-      const averageRating = entries.reduce((sum, entry) => sum + Number(entry.rating), 0) / entries.length;
-      averageEl.textContent = averageRating.toFixed(1);
+      return true;
+    });
+  }
 
-      const locationCounts = {};
-      entries.forEach((entry) => {
-        locationCounts[entry.location] = (locationCounts[entry.location] || 0) + 1;
-      });
-      const locations = Object.keys(locationCounts);
-      const mostCommonLocation = locations.reduce(
-        (best, location) => (locationCounts[location] > locationCounts[best] ? location : best),
-        locations[0]
-      );
-      locationEl.textContent = mostCommonLocation;
+  function renderSummary() {
+    const entries = allEntries;
+
+    const totalEl = document.getElementById('summary-total');
+    const averageEl = document.getElementById('summary-average');
+    const locationEl = document.getElementById('summary-location');
+
+    totalEl.textContent = String(entries.length);
+
+    if (entries.length === 0) {
+      averageEl.textContent = 'N/A';
+      locationEl.textContent = 'N/A';
+      return;
     }
 
-    function renderChart() {
-      const entries = loadEntries().filter((entry) => !entry.hidden);
-      const canvas = document.getElementById('rating-chart');
-      const emptyEl = document.getElementById('rating-chart-empty');
-      const counts = [1, 2, 3, 4, 5].map(
-        (rating) => entries.filter((entry) => Number(entry.rating) === rating).length
-      );
+    const averageRating = entries.reduce((sum, entry) => sum + Number(entry.rating), 0) / entries.length;
+    averageEl.textContent = averageRating.toFixed(1);
 
-      if (entries.length === 0) {
-        emptyEl.classList.remove('hidden');
-        canvas.classList.add('hidden');
-        if (ratingChart) {
-          ratingChart.destroy();
-          ratingChart = null;
-        }
-        return;
-      }
+    const locationCounts = {};
 
-      emptyEl.classList.add('hidden');
-      canvas.classList.remove('hidden');
+    entries.forEach((entry) => {
+      locationCounts[entry.location] = (locationCounts[entry.location] || 0) + 1;
+    });
+
+    const locations = Object.keys(locationCounts);
+
+    const mostCommonLocation = locations.reduce(
+      (best, location) => locationCounts[location] > locationCounts[best] ? location : best,
+      locations[0]
+    );
+
+    locationEl.textContent = mostCommonLocation;
+  }
+
+  function renderChart() {
+    const entries = allEntries;
+
+    const canvas = document.getElementById('rating-chart');
+    const emptyEl = document.getElementById('rating-chart-empty');
+
+    const counts = [1, 2, 3, 4, 5].map(
+      (rating) => entries.filter((entry) => Number(entry.rating) === rating).length
+    );
+
+    if (entries.length === 0) {
+      emptyEl.classList.remove('hidden');
+      canvas.classList.add('hidden');
 
       if (ratingChart) {
-        ratingChart.data.datasets[0].data = counts;
-        ratingChart.update();
-        return;
+        ratingChart.destroy();
+        ratingChart = null;
       }
 
-      ratingChart = new Chart(canvas, {
-        type: 'bar',
-        data: {
-          labels: ['1', '2', '3', '4', '5'],
-          datasets: [{
-            label: 'Number of feedback entries',
-            data: counts,
-            backgroundColor: ['#fca5a5', '#fca5a5', '#fde047', '#86efac', '#86efac'],
-          }],
-        },
-        options: {
-          responsive: true,
-          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-          plugins: { legend: { display: false } },
-        },
-      });
+      return;
     }
 
-    function renderFeedback() {
-      renderSummary();
-      renderChart();
+    emptyEl.classList.add('hidden');
+    canvas.classList.remove('hidden');
 
-      const countEl = document.getElementById('feedback-count');
-      const container = document.getElementById('feedback-table-container');
-      const entries = loadEntries();
+    if (ratingChart) {
+      ratingChart.data.datasets[0].data = counts;
+      ratingChart.update();
+      return;
+    }
 
-      if (entries.length === 0) {
-        countEl.textContent = '';
-        container.innerHTML = '<p class="text-sm text-gray-500">No feedback yet</p>';
-        return;
-      }
-
-      const showHidden = document.getElementById('filter-show-hidden').checked;
-      const baseEntries = showHidden ? entries : entries.filter((entry) => !entry.hidden);
-      const filtered = applyFilters(baseEntries);
-      countEl.textContent = `Showing ${filtered.length} of ${baseEntries.length} feedbacks`;
-
-      if (filtered.length === 0) {
-        container.innerHTML = '<p class="text-sm text-gray-500">No feedback matches your filters</p>';
-        return;
-      }
-
-      const sorted = [...filtered].sort(
-        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-      );
-
-      const rows = sorted
-        .map((entry) => {
-          if (entry.hidden) {
-            return `
-              <tr class="border-b border-gray-200 bg-gray-100 text-gray-400">
-                <td class="px-4 py-2 text-sm whitespace-nowrap">${formatDate(entry.timestamp)}</td>
-                <td class="px-4 py-2 text-sm whitespace-nowrap">${escapeHtml(entry.location)}</td>
-                <td class="px-4 py-2 text-sm">${escapeHtml(entry.rating)}</td>
-                <td class="px-4 py-2 text-sm whitespace-nowrap">${escapeHtml(entry.name)}</td>
-                <td class="px-4 py-2 text-sm">${escapeHtml(entry.comment)}</td>
-                <td class="px-4 py-2 text-sm whitespace-nowrap">
-                  <span class="inline-block rounded-full bg-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 mr-2">Hidden</span>
-                  <button data-action="restore" data-timestamp="${entry.timestamp}" class="text-blue-600 hover:text-blue-800 font-medium">Restore</button>
-                </td>
-              </tr>
-            `;
+    ratingChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: ['1', '2', '3', '4', '5'],
+        datasets: [{
+          label: 'Number of feedback entries',
+          data: counts,
+          backgroundColor: ['#fca5a5', '#fca5a5', '#fde047', '#86efac', '#86efac'],
+        }],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              precision: 0
+            }
           }
-
-          if (entry.timestamp === editingTimestamp) {
-            return `
-              <tr class="border-b border-gray-200 ${getSentimentClass(entry.rating)}">
-                <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${formatDate(entry.timestamp)}</td>
-                <td class="px-4 py-2 text-sm text-gray-700">
-                  <select class="edit-location rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="District 1" ${entry.location === 'District 1' ? 'selected' : ''}>District 1</option>
-                    <option value="District 3" ${entry.location === 'District 3' ? 'selected' : ''}>District 3</option>
-                    <option value="Thao Dien" ${entry.location === 'Thao Dien' ? 'selected' : ''}>Thao Dien</option>
-                  </select>
-                </td>
-                <td class="px-4 py-2 text-sm text-gray-700">
-                  <select class="edit-rating rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    ${[1, 2, 3, 4, 5].map((value) => `<option value="${value}" ${Number(entry.rating) === value ? 'selected' : ''}>${value}</option>`).join('')}
-                  </select>
-                </td>
-                <td class="px-4 py-2 text-sm text-gray-700">
-                  <input type="text" class="edit-name w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value="${escapeHtml(entry.name)}" />
-                </td>
-                <td class="px-4 py-2 text-sm text-gray-700">
-                  <textarea class="edit-comment w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows="2">${escapeHtml(entry.comment)}</textarea>
-                </td>
-                <td class="px-4 py-2 text-sm whitespace-nowrap">
-                  <button data-action="save" data-timestamp="${entry.timestamp}" class="text-green-600 hover:text-green-800 font-medium mr-2">Save</button>
-                  <button data-action="cancel" data-timestamp="${entry.timestamp}" class="text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
-                </td>
-              </tr>
-            `;
+        },
+        plugins: {
+          legend: {
+            display: false
           }
+        },
+      },
+    });
+  }
 
-          return `
-            <tr class="border-b border-gray-200 ${getSentimentClass(entry.rating)}">
-              <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${formatDate(entry.timestamp)}</td>
-              <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.location)}</td>
-              <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.rating)}</td>
-              <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.name)}</td>
-              <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.comment)}</td>
-              <td class="px-4 py-2 text-sm whitespace-nowrap">
-                <button data-action="edit" data-timestamp="${entry.timestamp}" class="text-blue-600 hover:text-blue-800 font-medium mr-2">Edit</button>
-                <button data-action="delete" data-timestamp="${entry.timestamp}" class="text-red-600 hover:text-red-800 font-medium">Delete</button>
-              </td>
-            </tr>
-          `;
-        })
-        .join('');
+  function renderFeedback() {
+    renderSummary();
+    renderChart();
 
-      container.innerHTML = `
-        <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200 text-left">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
-                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Comment</th>
-                <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200">
-              ${rows}
-            </tbody>
-          </table>
-        </div>
+    const countEl = document.getElementById('feedback-count');
+    const container = document.getElementById('feedback-table-container');
+
+    if (allEntries.length === 0) {
+      countEl.textContent = '';
+      container.innerHTML = '<p class="text-sm text-gray-500">No feedback yet</p>';
+      return;
+    }
+
+    const filtered = applyFilters(allEntries);
+
+    countEl.textContent = `Showing ${filtered.length} of ${allEntries.length} feedbacks`;
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<p class="text-sm text-gray-500">No feedback matches your filters</p>';
+      return;
+    }
+
+    const sorted = [...filtered].sort(
+      (a, b) => normalizeDate(b.createdAt) - normalizeDate(a.createdAt)
+    );
+
+    const rows = sorted.map((entry) => {
+      return `
+        <tr class="border-b border-gray-200 ${getSentimentClass(entry.rating)}">
+          <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${formatDate(entry.createdAt)}</td>
+          <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.location)}</td>
+          <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.rating)}</td>
+          <td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">${escapeHtml(entry.name || 'Anonymous')}</td>
+          <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(entry.comment)}</td>
+        </tr>
       `;
-    }
+    }).join('');
 
-    function handleTableClick(event) {
-      const button = event.target.closest('button[data-action]');
-      if (!button) return;
+    container.innerHTML = `
+      <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200 text-left">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+              <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+              <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
+              <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+              <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Comment</th>
+            </tr>
+          </thead>
 
-      const action = button.dataset.action;
-      const timestamp = button.dataset.timestamp;
+          <tbody class="divide-y divide-gray-200">
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
-      if (action === 'edit') {
-        editingTimestamp = timestamp;
-        renderFeedback();
-      } else if (action === 'cancel') {
-        editingTimestamp = null;
-        renderFeedback();
-      } else if (action === 'delete') {
-        if (!confirm('Delete this feedback entry?')) return;
-        const entries = loadEntries().map((entry) =>
-          entry.timestamp === timestamp ? { ...entry, hidden: true } : entry
-        );
-        localStorage.setItem('feedbackEntries', JSON.stringify(entries));
-        renderFeedback();
-      } else if (action === 'restore') {
-        const entries = loadEntries().map((entry) =>
-          entry.timestamp === timestamp ? { ...entry, hidden: false } : entry
-        );
-        localStorage.setItem('feedbackEntries', JSON.stringify(entries));
-        renderFeedback();
-      } else if (action === 'save') {
-        const row = button.closest('tr');
-        const name = row.querySelector('.edit-name').value.trim();
-        const location = row.querySelector('.edit-location').value;
-        const rating = Number(row.querySelector('.edit-rating').value);
-        const comment = row.querySelector('.edit-comment').value.trim();
+  async function initDashboard() {
+    const container = document.getElementById('feedback-table-container');
+    container.innerHTML = '<p class="text-sm text-gray-500">Loading feedback...</p>';
 
-        if (!comment) {
-          alert('Comment is required.');
-          return;
-        }
-
-        const entries = loadEntries().map((entry) =>
-          entry.timestamp === timestamp ? { ...entry, name, location, rating, comment } : entry
-        );
-        localStorage.setItem('feedbackEntries', JSON.stringify(entries));
-        editingTimestamp = null;
-        renderFeedback();
-      }
-    }
-
-    document.getElementById('feedback-table-container').addEventListener('click', handleTableClick);
-
-    ['filter-location', 'filter-min-rating', 'filter-from', 'filter-to', 'filter-show-hidden'].forEach((id) => {
-      document.getElementById(id).addEventListener('change', renderFeedback);
-    });
-
-    document.getElementById('filter-search-comment').addEventListener('input', renderFeedback);
-
-    document.getElementById('export-csv-btn').addEventListener('click', () => {
-      const filtered = applyFilters(loadEntries().filter((entry) => !entry.hidden));
-
-      if (filtered.length === 0) {
-        alert('Nothing to export');
-        return;
-      }
-
-      const sorted = [...filtered].sort(
-        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-      );
-
-      downloadCsv(buildCsv(sorted), `feedback-export-${toLocalDateInputValue(new Date())}.csv`);
-    });
+    allEntries = await loadEntries();
 
     renderFeedback();
-  </script>
+  }
+
+  ['filter-location', 'filter-min-rating', 'filter-from', 'filter-to', 'filter-show-hidden'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', renderFeedback);
+    }
+  });
+
+  document.getElementById('filter-search-comment').addEventListener('input', renderFeedback);
+
+  document.getElementById('export-csv-btn').addEventListener('click', () => {
+    const filtered = applyFilters(allEntries);
+
+    if (filtered.length === 0) {
+      alert('Nothing to export');
+      return;
+    }
+
+    const sorted = [...filtered].sort(
+      (a, b) => normalizeDate(b.createdAt) - normalizeDate(a.createdAt)
+    );
+
+    downloadCsv(buildCsv(sorted), `feedback-export-${toLocalDateInputValue(new Date())}.csv`);
+  });
+
+  initDashboard();
+</script>
 </body>
 </html>
