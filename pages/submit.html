@@ -83,36 +83,62 @@
       message.classList.add(isError ? 'text-red-600' : 'text-green-600');
     }
 
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
+    <script>
+  renderNav('submit');
 
-      const comment = form.elements['comment'].value.trim();
-      const ratingInput = form.querySelector('input[name="rating"]:checked');
+  const form = document.getElementById('feedback-form');
+  const message = document.getElementById('form-message');
 
-      if (!comment) {
-        showMessage('Comment is required.', true);
+  function showMessage(text, isError) {
+    message.textContent = text;
+    message.classList.remove('hidden', 'text-red-600', 'text-green-600');
+    message.classList.add(isError ? 'text-red-600' : 'text-green-600');
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const comment = form.elements['comment'].value.trim();
+    const ratingInput = form.querySelector('input[name="rating"]:checked');
+
+    if (!comment) {
+      showMessage('Comment is required.', true);
+      return;
+    }
+
+    if (!ratingInput) {
+      showMessage('Rating is required.', true);
+      return;
+    }
+
+    const entry = {
+      name: form.elements['name'].value.trim(),
+      location: form.elements['location'].value,
+      rating: Number(ratingInput.value),
+      comment: comment,
+    };
+
+    try {
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(entry),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        showMessage('Error: ' + data.error, true);
         return;
       }
-      if (!ratingInput) {
-        showMessage('Rating is required.', true);
-        return;
-      }
-
-      const entry = {
-        name: form.elements['name'].value.trim(),
-        location: form.elements['location'].value,
-        rating: Number(ratingInput.value),
-        comment,
-        timestamp: new Date().toISOString(),
-      };
-
-      const entries = JSON.parse(localStorage.getItem('feedbackEntries') || '[]');
-      entries.push(entry);
-      localStorage.setItem('feedbackEntries', JSON.stringify(entries));
 
       form.reset();
       showMessage('Thanks for your feedback', false);
-    });
-  </script>
-</body>
-</html>
+    } catch (error) {
+      console.error(error);
+      showMessage('Cannot connect to server.', true);
+    }
+  });
+</script>
