@@ -6,23 +6,31 @@
   <title>Submit Feedback — Feedback Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-50 min-h-screen">
   <div id="nav-container"></div>
 
   <main class="max-w-3xl mx-auto px-4 py-8">
     <h1 class="text-2xl font-semibold text-gray-800 mb-6">Submit Feedback</h1>
 
-    <form id="feedback-form" class="space-y-5 bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+    <form id="feedback-form" method="post" action="#" class="space-y-5 bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
       <div>
         <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
-        <input type="text" id="name" name="name"
-          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <input
+          type="text"
+          id="name"
+          name="name"
+          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
       </div>
 
       <div>
         <label for="location" class="block text-sm font-medium text-gray-700 mb-1">Location</label>
-        <select id="location" name="location"
-          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <select
+          id="location"
+          name="location"
+          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
           <option value="District 1">District 1</option>
           <option value="District 3">District 3</option>
           <option value="Thao Dien">Thao Dien</option>
@@ -31,23 +39,28 @@
 
       <fieldset>
         <legend class="block text-sm font-medium text-gray-700 mb-1">Rating</legend>
+
         <div class="flex items-center gap-4">
           <label class="flex items-center gap-1.5 text-sm text-gray-700">
             <input type="radio" name="rating" value="1" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
             1
           </label>
+
           <label class="flex items-center gap-1.5 text-sm text-gray-700">
             <input type="radio" name="rating" value="2" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
             2
           </label>
+
           <label class="flex items-center gap-1.5 text-sm text-gray-700">
             <input type="radio" name="rating" value="3" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
             3
           </label>
+
           <label class="flex items-center gap-1.5 text-sm text-gray-700">
             <input type="radio" name="rating" value="4" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
             4
           </label>
+
           <label class="flex items-center gap-1.5 text-sm text-gray-700">
             <input type="radio" name="rating" value="5" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
             5
@@ -57,22 +70,31 @@
 
       <div>
         <label for="comment" class="block text-sm font-medium text-gray-700 mb-1">Comment</label>
-        <textarea id="comment" name="comment" rows="4"
-          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+        <textarea
+          id="comment"
+          name="comment"
+          rows="4"
+          class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        ></textarea>
       </div>
 
       <p id="form-message" class="text-sm hidden"></p>
 
-      <button type="submit"
-        class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+      <button
+        type="submit"
+        class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      >
         Submit
       </button>
     </form>
   </main>
 
-  <script src="../shared/nav.js"></script>
+  <script src="/shared/nav.js"></script>
+
   <script>
-    renderNav('submit');
+    if (typeof renderNav === 'function') {
+      renderNav('submit');
+    }
 
     const form = document.getElementById('feedback-form');
     const message = document.getElementById('form-message');
@@ -83,62 +105,52 @@
       message.classList.add(isError ? 'text-red-600' : 'text-green-600');
     }
 
-    <script>
-  renderNav('submit');
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
 
-  const form = document.getElementById('feedback-form');
-  const message = document.getElementById('form-message');
+      const comment = form.elements['comment'].value.trim();
+      const ratingInput = form.querySelector('input[name="rating"]:checked');
 
-  function showMessage(text, isError) {
-    message.textContent = text;
-    message.classList.remove('hidden', 'text-red-600', 'text-green-600');
-    message.classList.add(isError ? 'text-red-600' : 'text-green-600');
-  }
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    const comment = form.elements['comment'].value.trim();
-    const ratingInput = form.querySelector('input[name="rating"]:checked');
-
-    if (!comment) {
-      showMessage('Comment is required.', true);
-      return;
-    }
-
-    if (!ratingInput) {
-      showMessage('Rating is required.', true);
-      return;
-    }
-
-    const entry = {
-      name: form.elements['name'].value.trim(),
-      location: form.elements['location'].value,
-      rating: Number(ratingInput.value),
-      comment: comment,
-    };
-
-    try {
-      const response = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(entry),
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        showMessage('Error: ' + data.error, true);
+      if (!comment) {
+        showMessage('Comment is required.', true);
         return;
       }
 
-      form.reset();
-      showMessage('Thanks for your feedback', false);
-    } catch (error) {
-      console.error(error);
-      showMessage('Cannot connect to server.', true);
-    }
-  });
-</script>
+      if (!ratingInput) {
+        showMessage('Rating is required.', true);
+        return;
+      }
+
+      const entry = {
+        name: form.elements['name'].value.trim(),
+        location: form.elements['location'].value,
+        rating: Number(ratingInput.value),
+        comment: comment
+      };
+
+      try {
+        const response = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(entry)
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+          showMessage('Error: ' + data.error, true);
+          return;
+        }
+
+        form.reset();
+        showMessage('Thanks for your feedback', false);
+      } catch (error) {
+        console.error(error);
+        showMessage('Cannot connect to server.', true);
+      }
+    });
+  </script>
+</body>
+</html>
