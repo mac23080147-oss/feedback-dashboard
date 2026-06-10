@@ -27,11 +27,18 @@ function renderNav(activePage) {
             Submit
           </a>
 
-          <a 
-            href="/pages/admin.html" 
+          <a
+            href="/pages/admin.html"
             class="${activePage === 'admin' ? 'text-blue-600 font-semibold' : 'text-gray-700'} hover:text-blue-600"
           >
             Admin
+          </a>
+
+          <a
+            href="/pages/dashboard.html"
+            class="${activePage === 'dashboard' ? 'text-blue-600 font-semibold' : 'text-gray-700'} hover:text-blue-600"
+          >
+            Dashboard
           </a>
         </div>
       </div>

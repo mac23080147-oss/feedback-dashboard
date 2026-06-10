@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Feedback Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="nav-container"></div>
+
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <h1 class="text-2xl font-semibold text-gray-800 mb-6">Dashboard</h1>
+
+    <p id="dashboard-status" class="text-sm text-gray-500 mb-6">Loading dashboard...</p>
+
+    <div id="dashboard-content" class="hidden">
+      <div class="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm text-gray-500">Total feedback</p>
+          <p id="kpi-total" class="text-2xl font-semibold text-gray-800 mt-1"></p>
+        </div>
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm text-gray-500">Average rating</p>
+          <p id="kpi-average" class="text-2xl font-semibold text-gray-800 mt-1"></p>
+        </div>
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm text-gray-500">Positive (4-5)</p>
+          <p id="kpi-positive" class="text-2xl font-semibold text-green-600 mt-1"></p>
+        </div>
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm text-gray-500">Negative (1-2)</p>
+          <p id="kpi-negative" class="text-2xl font-semibold text-red-600 mt-1"></p>
+        </div>
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm text-gray-500">Most common location</p>
+          <p id="kpi-location" class="text-2xl font-semibold text-gray-800 mt-1"></p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm font-medium text-gray-700 mb-2">Rating distribution</p>
+          <canvas id="chart-rating" height="220"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm font-medium text-gray-700 mb-2">Feedback by location</p>
+          <canvas id="chart-location" height="220"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm font-medium text-gray-700 mb-2">Feedback trend over time</p>
+          <canvas id="chart-trend" height="220"></canvas>
+        </div>
+
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+          <p class="text-sm font-medium text-gray-700 mb-2">Sentiment distribution</p>
+          <canvas id="chart-sentiment" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="../shared/nav.js"></script>
+  <script>
+  if (typeof renderNav === 'function') {
+    renderNav('dashboard');
+  }
+
+  function normalizeDate(value) {
+    if (!value) return new Date();
+
+    // Firestore timestamp object from API
+    if (value._seconds) return new Date(value._seconds * 1000);
+    if (value.seconds) return new Date(value.seconds * 1000);
+
+    // normal ISO string fallback
+    return new Date(value);
+  }
+
+  function dateKey(date) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+
+  const charts = {};
+
+  function renderOrUpdateChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+
+    if (charts[canvasId]) {
+      charts[canvasId].destroy();
+    }
+
+    charts[canvasId] = new Chart(canvas, config);
+  }
+
+  function renderKpis(entries) {
+    document.getElementById('kpi-total').textContent = String(entries.length);
+
+    const average = entries.reduce((sum, entry) => sum + Number(entry.rating), 0) / entries.length;
+    document.getElementById('kpi-average').textContent = average.toFixed(1);
+
+    const positive = entries.filter((entry) => Number(entry.rating) >= 4).length;
+    const negative = entries.filter((entry) => Number(entry.rating) <= 2).length;
+
+    document.getElementById('kpi-positive').textContent = String(positive);
+    document.getElementById('kpi-negative').textContent = String(negative);
+
+    const locationCounts = {};
+
+    entries.forEach((entry) => {
+      const location = entry.location || 'Unknown';
+      locationCounts[location] = (locationCounts[location] || 0) + 1;
+    });
+
+    const locations = Object.keys(locationCounts);
+    const mostCommonLocation = locations.reduce(
+      (best, location) => locationCounts[location] > locationCounts[best] ? location : best,
+      locations[0]
+    );
+
+    document.getElementById('kpi-location').textContent = mostCommonLocation;
+  }
+
+  function renderRatingChart(entries) {
+    const counts = [1, 2, 3, 4, 5].map(
+      (rating) => entries.filter((entry) => Number(entry.rating) === rating).length
+    );
+
+    renderOrUpdateChart('chart-rating', {
+      type: 'bar',
+      data: {
+        labels: ['1', '2', '3', '4', '5'],
+        datasets: [{
+          label: 'Feedback count',
+          data: counts,
+          backgroundColor: ['#fca5a5', '#fca5a5', '#fde047', '#86efac', '#86efac'],
+        }],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 } },
+        },
+        plugins: {
+          legend: { display: false },
+        },
+      },
+    });
+  }
+
+  function renderLocationChart(entries) {
+    const counts = {};
+
+    entries.forEach((entry) => {
+      const location = entry.location || 'Unknown';
+      counts[location] = (counts[location] || 0) + 1;
+    });
+
+    const labels = Object.keys(counts);
+    const data = labels.map((location) => counts[location]);
+    const palette = ['#60a5fa', '#f472b6', '#fbbf24', '#34d399', '#a78bfa', '#fb923c', '#22d3ee'];
+
+    renderOrUpdateChart('chart-location', {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: labels.map((_, i) => palette[i % palette.length]),
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom' },
+        },
+      },
+    });
+  }
+
+  function renderTrendChart(entries) {
+    const counts = {};
+
+    entries.forEach((entry) => {
+      const key = dateKey(normalizeDate(entry.createdAt));
+      counts[key] = (counts[key] || 0) + 1;
+    });
+
+    const sortedKeys = Object.keys(counts).sort();
+    const labels = sortedKeys.map((key) => {
+      const [year, month, day] = key.split('-');
+      return `${day}/${month}/${year}`;
+    });
+    const data = sortedKeys.map((key) => counts[key]);
+
+    renderOrUpdateChart('chart-trend', {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Feedback count',
+          data,
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96, 165, 250, 0.2)',
+          tension: 0.2,
+          fill: true,
+        }],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 } },
+        },
+        plugins: {
+          legend: { display: false },
+        },
+      },
+    });
+  }
+
+  function renderSentimentChart(entries) {
+    const negative = entries.filter((entry) => Number(entry.rating) <= 2).length;
+    const neutral = entries.filter((entry) => Number(entry.rating) === 3).length;
+    const positive = entries.filter((entry) => Number(entry.rating) >= 4).length;
+
+    renderOrUpdateChart('chart-sentiment', {
+      type: 'bar',
+      data: {
+        labels: ['Negative', 'Neutral', 'Positive'],
+        datasets: [{
+          label: 'Feedback count',
+          data: [negative, neutral, positive],
+          backgroundColor: ['#fca5a5', '#fde047', '#86efac'],
+        }],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 } },
+        },
+        plugins: {
+          legend: { display: false },
+        },
+      },
+    });
+  }
+
+  async function initDashboard() {
+    const statusEl = document.getElementById('dashboard-status');
+    const contentEl = document.getElementById('dashboard-content');
+
+    try {
+      const response = await fetch('/api/feedback');
+      const data = await response.json();
+
+      if (!data.success) {
+        statusEl.textContent = `Error loading dashboard: ${data.error || 'Unknown error'}`;
+        return;
+      }
+
+      const entries = data.feedbacks || [];
+
+      if (entries.length === 0) {
+        statusEl.textContent = 'No feedback data yet';
+        return;
+      }
+
+      statusEl.classList.add('hidden');
+      contentEl.classList.remove('hidden');
+
+      renderKpis(entries);
+      renderRatingChart(entries);
+      renderLocationChart(entries);
+      renderTrendChart(entries);
+      renderSentimentChart(entries);
+    } catch (error) {
+      statusEl.textContent = `Error loading dashboard: ${error.message}`;
+    }
+  }
+
+  initDashboard();
+</script>
+</body>
+</html>
